@@ -12,7 +12,7 @@ fn test_exhaustive() {
     let finished = Arc::new(AtomicU32::new(0));
 
     let mut workers = Vec::new();
-    for _ in 0..num_cpus::get() {
+    for _ in 0..std::thread::available_parallelism().unwrap().get() {
         let counter = counter.clone();
         let finished = finished.clone();
         workers.push(thread::spawn(move || loop {
