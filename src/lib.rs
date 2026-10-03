@@ -126,8 +126,9 @@ use core::str;
 use no_panic::no_panic;
 
 const BUFFER_SIZE: usize = 34;
-const NAN: &[u8; 4] = b"NaN\0";
-const INFINITY: &[u8; 4] = b"inf\0";
+const NAN: &str = "NaN";
+const INFINITY: &str = "inf";
+const NEG_INFINITY: &str = "-inf";
 
 // Declares struct members that must live in memory on ARM64 but are encoded as
 // immediates in the x64 assembly.
@@ -1818,15 +1819,6 @@ unsafe fn write_float_simd_64(
     ptr::null_mut()
 }
 
-// Writes "inf"/"NaN" with one 4-byte store, so the buffer must hold 4 bytes.
-unsafe fn write_inf_nan(buffer: *mut u8, is_nan: bool) -> *mut u8 {
-    let str = if is_nan { NAN } else { INFINITY };
-    unsafe {
-        buffer.copy_from_nonoverlapping(str.as_ptr(), 4);
-        buffer.add(3)
-    }
-}
-
 // Writes the exponent as 'e', a sign and the digits (e.g. e+5).
 // Rust port: unlike upstream, exponents are not at-least-two digits (e+5 instead of e+05)
 #[cfg_attr(feature = "no-panic", no_panic)]
@@ -2058,11 +2050,6 @@ where
 
     let mut dec: ShortestDecimal;
     if unlikely(!Float::is_normal(bin_exp)) {
-        if bin_exp != 0 {
-            let is_nan = bin_sig != Float::SigType::from(0);
-            buffer = unsafe { buffer.sub((is_nan && Float::is_negative(bits)) as usize) };
-            return unsafe { write_inf_nan(buffer, is_nan) };
-        }
         if bin_sig == Float::SigType::from(0) {
             return unsafe {
                 *buffer = b'0';
@@ -2281,12 +2268,35 @@ impl Buffer {
     /// Print a floating point number into this buffer and return a reference to
     /// its string representation within the buffer.
     ///
-    /// # Special cases
-    ///
-    /// This function formats NaN as the string "NaN", positive infinity as
-    /// "inf", and negative infinity as "-inf" to match std::fmt.
+    /// If your input is known to be finite, you may get better performance by
+    /// calling the `format_finite` method instead of `format` to avoid the
+    /// checks for special cases.
     #[cfg_attr(feature = "no-panic", no_panic)]
     pub fn format<F: Float>(&mut self, f: F) -> &str {
+        if f.is_nonfinite() {
+            f.format_nonfinite()
+        } else {
+            self.format_finite(f)
+        }
+    }
+
+    /// Print a floating point number into this buffer and return a reference to
+    /// its string representation within the buffer.
+    ///
+    /// # Special cases
+    ///
+    /// This function **does not** check for NaN or infinity. If the input
+    /// number is not a finite float, the printed representation will be some
+    /// correctly formatted but unspecified numerical value.
+    ///
+    /// Please check [`is_finite`] yourself before calling this function, or
+    /// check [`is_nan`] and [`is_infinite`] and handle those cases yourself.
+    ///
+    /// [`is_finite`]: f64::is_finite
+    /// [`is_nan`]: f64::is_nan
+    /// [`is_infinite`]: f64::is_infinite
+    #[cfg_attr(feature = "no-panic", no_panic)]
+    pub fn format_finite<F: Float>(&mut self, f: F) -> &str {
         unsafe {
             let end = f.write_to_zmij_buffer(self.bytes.as_mut_ptr().cast::<u8>());
             let len = end.offset_from(self.bytes.as_ptr().cast::<u8>()) as usize;
@@ -2309,10 +2319,34 @@ impl Float for f64 {}
 
 mod private {
     pub trait Sealed: crate::traits::Float {
+        fn is_nonfinite(self) -> bool;
+        fn format_nonfinite(self) -> &'static str;
         unsafe fn write_to_zmij_buffer(self, buffer: *mut u8) -> *mut u8;
     }
 
     impl Sealed for f32 {
+        #[inline]
+        fn is_nonfinite(self) -> bool {
+            const EXP_MASK: u32 = 0x7f800000;
+            let bits = self.to_bits();
+            bits & EXP_MASK == EXP_MASK
+        }
+
+        #[cold]
+        #[cfg_attr(feature = "no-panic", inline)]
+        fn format_nonfinite(self) -> &'static str {
+            const MANTISSA_MASK: u32 = 0x007fffff;
+            const SIGN_MASK: u32 = 0x80000000;
+            let bits = self.to_bits();
+            if bits & MANTISSA_MASK != 0 {
+                crate::NAN
+            } else if bits & SIGN_MASK != 0 {
+                crate::NEG_INFINITY
+            } else {
+                crate::INFINITY
+            }
+        }
+
         #[cfg_attr(feature = "no-panic", inline)]
         unsafe fn write_to_zmij_buffer(self, buffer: *mut u8) -> *mut u8 {
             unsafe { crate::write(buffer, self) }
@@ -2320,6 +2354,28 @@ mod private {
     }
 
     impl Sealed for f64 {
+        #[inline]
+        fn is_nonfinite(self) -> bool {
+            const EXP_MASK: u64 = 0x7ff0000000000000;
+            let bits = self.to_bits();
+            bits & EXP_MASK == EXP_MASK
+        }
+
+        #[cold]
+        #[cfg_attr(feature = "no-panic", inline)]
+        fn format_nonfinite(self) -> &'static str {
+            const MANTISSA_MASK: u64 = 0x000fffffffffffff;
+            const SIGN_MASK: u64 = 0x8000000000000000;
+            let bits = self.to_bits();
+            if bits & MANTISSA_MASK != 0 {
+                crate::NAN
+            } else if bits & SIGN_MASK != 0 {
+                crate::NEG_INFINITY
+            } else {
+                crate::INFINITY
+            }
+        }
+
         #[cfg_attr(feature = "no-panic", inline)]
         unsafe fn write_to_zmij_buffer(self, buffer: *mut u8) -> *mut u8 {
             unsafe { crate::write(buffer, self) }
