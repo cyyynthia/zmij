@@ -13,11 +13,20 @@ const _: () = {
     let static_data_expected = match true {
         cfg!(opt_level = "s") => 640,
 
-        cfg!(all(target_arch = "x86_64", target_feature = "sse4.1", not(miri))) => 24912, // 24.3K
-        cfg!(all(target_arch = "aarch64", target_feature = "neon", not(miri))) => 24208, // 24.3K
+        cfg!(all(
+            target_arch = "x86_64",
+            target_feature = "sse4.1",
+            not(miri)
+        )) => 24912, // 24.3K
+        cfg!(all(
+            target_arch = "aarch64",
+            target_feature = "neon",
+            not(miri)
+        )) => 24208, // 23.6K
 
+        cfg!(target_arch = "aarch64") => 18448, // 18K
         #[allow(unused)]
-        _ => 18184 // 17.7K
+        _ => 18184,     // 17.7K
     };
 
     assert!(static_data == static_data_expected);

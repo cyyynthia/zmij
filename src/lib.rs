@@ -112,8 +112,8 @@ use core::arch::aarch64::{
     vqdmulhq_n_s32, vqtbl1q_u8, vreinterpret_s32_u32, vreinterpret_s32_u64, vreinterpret_u16_s32,
     vreinterpret_u32_s32, vreinterpret_u64_u8, vreinterpretq_s16_s32, vreinterpretq_s32_u32,
     vreinterpretq_s8_u8, vreinterpretq_u16_s8, vreinterpretq_u16_u8, vreinterpretq_u64_u8,
-    vreinterpretq_u8_s16, vreinterpretq_u8_u16, vreinterpretq_u8_u64, vrev64q_u8, vsetq_lane_u64, vshll_n_u16,
-    vshr_n_u32, vshrn_n_u16, vst1q_u8,
+    vreinterpretq_u8_s16, vreinterpretq_u8_u16, vreinterpretq_u8_u64, vrev64q_u8, vsetq_lane_u64,
+    vshll_n_u16, vshr_n_u32, vshrn_n_u16, vst1q_u8,
 };
 #[cfg(all(any(target_arch = "aarch64", target_arch = "x86_64"), not(miri)))]
 use core::arch::asm;
@@ -540,6 +540,7 @@ impl Pow10SignificandTable {
     }
 
     #[inline]
+    #[cfg_attr(feature = "no-panic", no_panic)]
     unsafe fn get_unchecked(&self, dec_exp: i32) -> uint128 {
         const DEC_EXP_MIN: i32 = -307;
         let i = dec_exp - DEC_EXP_MIN;
@@ -674,7 +675,7 @@ impl ExpStringTable {
                     | ((ddd / 10 % 10 + b'0' as u64) << 8)
                     | ((ddd % 10 + b'0' as u64) << 16)
             } else {
-                abs_e + b'0' as u64 | ((b'0' as u64) << 16)
+                (abs_e + b'0' as u64) | ((b'0' as u64) << 16)
             };
 
             // Rust port: we allow `e+d`; len may be only 3.
@@ -1054,7 +1055,10 @@ impl FixedLayoutTable {
             dec_exp
         );
 
-        unsafe { self.data.get_unchecked((dec_exp - Self::MIN_DEC_EXP) as usize) }
+        unsafe {
+            self.data
+                .get_unchecked((dec_exp - Self::MIN_DEC_EXP) as usize)
+        }
     }
 
     const fn new() -> Self {
@@ -1063,7 +1067,8 @@ impl FixedLayoutTable {
 
         let mut dec_exp = Self::MIN_DEC_EXP;
         while dec_exp <= Self::MAX_DEC_EXP {
-            data[(dec_exp - Self::MIN_DEC_EXP) as usize] = MaybeUninit::new(FixedLayoutTableEntry::new(dec_exp));
+            data[(dec_exp - Self::MIN_DEC_EXP) as usize] =
+                MaybeUninit::new(FixedLayoutTableEntry::new(dec_exp));
             dec_exp += 1;
         }
 
@@ -1695,12 +1700,20 @@ unsafe fn write_digits_64(
         buffer
             .cast::<<f64 as FloatTraits>::DecDigitsType>()
             .write_unaligned(digits);
-        buffer.copy_from(buffer.add(drop_leading_zero as usize), core::mem::size_of_val(&digits));
+        buffer.copy_from(
+            buffer.add(drop_leading_zero as usize),
+            core::mem::size_of_val(&digits),
+        );
     }
 
     #[cfg(all(target_arch = "aarch64", target_feature = "neon", not(miri)))]
     unsafe {
-        let shuffle = vld1q_u8(ptr::addr_of!(d.shift_shuffle).byte_add(drop_leading_zero as usize).cast());
+        let shuffle = vld1q_u8(
+            ptr::addr_of!(d.shift_shuffle)
+                .cast::<u8>()
+                .add(drop_leading_zero as usize)
+                .cast(),
+        );
         let shifted = vqtbl1q_u8(vreinterpretq_u8_u16(digits), shuffle);
         vst1q_u8(buffer, shifted);
     }
@@ -1838,7 +1851,7 @@ where
         let hi = if USE_UMUL128_HI64 {
             umul128_hi64(abs_exp as u64, 0x290000000000000) as u32
         } else {
-            (abs_exp as u32 * DIV100_SIG) >> DIV100_EXP
+            (abs_exp * DIV100_SIG) >> DIV100_EXP
         };
 
         unsafe {
@@ -2162,8 +2175,12 @@ where
                 let point = start.add(layout.point_pos as usize);
                 *point = b'.';
                 *buffer.add(layout.last_digit_pos[has_extra_digit as usize] as usize) = last_digit;
-                buffer =
-                    buffer.add(*layout.end_pos.get_unchecked(num_digits + has_extra_digit as usize - 1) as usize);
+                buffer = buffer.add(
+                    *layout
+                        .end_pos
+                        .get_unchecked(num_digits + has_extra_digit as usize - 1)
+                        as usize,
+                );
 
                 // Rust port: always emit `.0` for integers.
                 if buffer == point {
@@ -2190,7 +2207,12 @@ where
 
             let point = start.add(point_pos as usize);
             *point = b'.';
-            buffer = buffer.add(*layout.end_pos.get_unchecked(num_digits + has_extra_digit as usize - 1) as usize);
+            buffer = buffer.add(
+                *layout
+                    .end_pos
+                    .get_unchecked(num_digits + has_extra_digit as usize - 1)
+                    as usize,
+            );
 
             // Rust port: always emit `.0` for integers.
             if buffer == point {
