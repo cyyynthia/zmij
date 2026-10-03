@@ -1,4 +1,7 @@
-use core::hint::cold_path;
+/// Cold path function.
+#[inline(always)]
+#[cold]
+pub const fn cold_path() {}
 
 #[inline(always)]
 pub const fn unlikely(cond: bool) -> bool {

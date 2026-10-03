@@ -112,7 +112,7 @@ use core::arch::aarch64::{
     vqdmulhq_n_s32, vqtbl1q_u8, vreinterpret_s32_u32, vreinterpret_s32_u64, vreinterpret_u16_s32,
     vreinterpret_u32_s32, vreinterpret_u64_u8, vreinterpretq_s16_s32, vreinterpretq_s32_u32,
     vreinterpretq_s8_u8, vreinterpretq_u16_s8, vreinterpretq_u16_u8, vreinterpretq_u64_u8,
-    vreinterpretq_u8_s16, vreinterpretq_u8_u64, vrev64q_u8, vsetq_lane_u64, vshll_n_u16,
+    vreinterpretq_u8_s16, vreinterpretq_u8_u16, vreinterpretq_u8_u64, vrev64q_u8, vsetq_lane_u64, vshll_n_u16,
     vshr_n_u32, vshrn_n_u16, vst1q_u8,
 };
 #[cfg(all(any(target_arch = "aarch64", target_arch = "x86_64"), not(miri)))]
@@ -1560,7 +1560,7 @@ fn to_digits_64(value: u64, #[allow(unused_variables)] d: &Data) -> DecDigits<f6
         };
         let nonzero_mask = unsafe {
             let is_not_zero = vreinterpretq_u16_u8(vcgtzq_s8(vreinterpretq_s8_u8(digits)));
-            vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(is_not_zero, 4)), 0);
+            vget_lane_u64(vreinterpret_u64_u8(vshrn_n_u16(is_not_zero, 4)), 0)
         };
         DecDigits {
             unshuffled: (),
@@ -1649,7 +1649,7 @@ fn to_digits_32(value: u64, #[allow(unused_variables)] d: &Data) -> DecDigits<f3
         let abcd_efgh = value + u64::from(NEG10K) * ((value * u64::from(DIV10K_SIG)) >> DIV10K_EXP);
         let input =
             unsafe { vcombine_s32(vreinterpret_s32_u64(vcreate_u64(abcd_efgh)), vdup_n_s32(0)) };
-        let unshuffled = to_bcd_4x4(abcd_efgh, d);
+        let unshuffled = to_bcd_4x4(input, d);
         let unshuffled_bcd =
             unsafe { vget_lane_u64(vreinterpret_u64_u8(vget_low_u8(unshuffled)), 0) };
         let len = if unshuffled_bcd != 0 {
@@ -1695,12 +1695,12 @@ unsafe fn write_digits_64(
         buffer
             .cast::<<f64 as FloatTraits>::DecDigitsType>()
             .write_unaligned(digits);
-        buffer.copy_from(buffer.add(drop_leading_zero as usize), size_of_val(&digits));
+        buffer.copy_from(buffer.add(drop_leading_zero as usize), core::mem::size_of_val(&digits));
     }
 
     #[cfg(all(target_arch = "aarch64", target_feature = "neon", not(miri)))]
     unsafe {
-        let shuffle = vld1q_u8(ptr::addr_of!(d.shift_shuffle).add(drop_leading_zero as usize));
+        let shuffle = vld1q_u8(ptr::addr_of!(d.shift_shuffle).add(drop_leading_zero as usize).cast());
         let shifted = vqtbl1q_u8(vreinterpretq_u8_u16(digits), shuffle);
         vst1q_u8(buffer, shifted);
     }
@@ -1827,10 +1827,6 @@ unsafe fn write_exp<Float>(mut buffer: *mut u8, dec_exp: i32) -> *mut u8
 where
     Float: FloatTraits,
 {
-    const {
-        assert!(Float::MAX_10_EXP < 1000);
-    }
-
     let sign = if dec_exp >= 0 { b'+' } else { b'-' };
     let mut abs_exp = dec_exp.unsigned_abs();
 

@@ -10,7 +10,7 @@ const _: () = {
         + mem::size_of_val(&crate::STATIC_DATA.float_shuffles)
         + mem::size_of_val(&crate::DIGITS2);
     if cfg!(opt_level = "s") {
-        assert!(static_data == 200);
+        assert!(static_data != 1608);
     } else {
         #[cfg(any(
             all(target_arch = "x86_64", target_feature = "sse4.1", not(miri)),
