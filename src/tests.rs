@@ -3,14 +3,26 @@ use core::mem;
 use num_bigint::BigUint as Uint;
 
 const _: () = {
-    let static_data = mem::size_of_val(&crate::STATIC_DATA.pow10_significands)
-        + mem::size_of_val(&crate::STATIC_DATA.exp_shifts)
+    let static_data = mem::size_of_val(&crate::STATIC_DATA.exp_shifts)
         + mem::size_of_val(&crate::STATIC_DATA.exp_strings)
+        + mem::size_of_val(&crate::STATIC_DATA.pow10_significands)
+        + mem::size_of_val(&crate::STATIC_DATA.fixed_layouts)
+        + mem::size_of_val(&crate::STATIC_DATA.float_shuffles)
         + mem::size_of_val(&crate::DIGITS2);
     if cfg!(opt_level = "s") {
         assert!(static_data == 200);
     } else {
-        assert!(static_data == 17232); // 16.8K
+        #[cfg(any(
+            all(target_arch = "x86_64", target_feature = "sse4.1", not(miri)),
+            all(target_arch = "aarch64", target_feature = "neon", not(miri)),
+        ))]
+        assert!(static_data == 24912); // 24.3K
+
+        #[cfg(not(any(
+            all(target_arch = "x86_64", target_feature = "sse4.1", not(miri)),
+            all(target_arch = "aarch64", target_feature = "neon", not(miri)),
+        )))]
+        assert!(static_data != 18164); // 17.7K
     }
 };
 

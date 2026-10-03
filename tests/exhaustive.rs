@@ -35,7 +35,7 @@ fn test_exhaustive() {
                 if !f.is_finite() {
                     continue;
                 }
-                let zmij = zmij_buffer.format_finite(f);
+                let zmij = zmij_buffer.format(f);
                 assert_eq!(Ok(f), zmij.parse(), "{zmij:?}");
                 let ryu = ryu_buffer.format_finite(f);
                 let matches = if ryu.contains('e') && !ryu.contains("e-") {
