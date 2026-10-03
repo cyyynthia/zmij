@@ -1063,7 +1063,7 @@ impl FixedLayoutTable {
 
         let mut dec_exp = Self::MIN_DEC_EXP;
         while dec_exp <= Self::MAX_DEC_EXP {
-            data[(dec_exp - Self::MIN_DEC_EXP) as usize].write(FixedLayoutTableEntry::new(dec_exp));
+            data[(dec_exp - Self::MIN_DEC_EXP) as usize] = MaybeUninit::new(FixedLayoutTableEntry::new(dec_exp));
             dec_exp += 1;
         }
 
@@ -1700,7 +1700,7 @@ unsafe fn write_digits_64(
 
     #[cfg(all(target_arch = "aarch64", target_feature = "neon", not(miri)))]
     unsafe {
-        let shuffle = vld1q_u8(ptr::addr_of!(d.shift_shuffle).add(drop_leading_zero as usize).cast());
+        let shuffle = vld1q_u8(ptr::addr_of!(d.shift_shuffle).byte_add(drop_leading_zero as usize).cast());
         let shifted = vqtbl1q_u8(vreinterpretq_u8_u16(digits), shuffle);
         vst1q_u8(buffer, shifted);
     }
@@ -1836,9 +1836,9 @@ where
 
     if Float::MAX_10_EXP >= 100 {
         let hi = if USE_UMUL128_HI64 {
-            umul128_hi64(dec_exp as u64, 0x290000000000000) as u32
+            umul128_hi64(abs_exp as u64, 0x290000000000000) as u32
         } else {
-            (dec_exp as u32 * DIV100_SIG) >> DIV100_EXP
+            (abs_exp as u32 * DIV100_SIG) >> DIV100_EXP
         };
 
         unsafe {
@@ -2062,7 +2062,7 @@ where
         // dec.sig is 0 for the smallest subnormals, which are all last digit.
         let mut num_digits = compute_dec_exp(63 - (dec.sig | 1).leading_zeros() as i32, true);
         num_digits += (dec.sig != 0) as i32;
-        num_digits += (dec.sig >= POW10S[num_digits as usize]) as i32;
+        num_digits += (dec.sig >= *unsafe { POW10S.get_unchecked(num_digits as usize) }) as i32;
 
         let num_zeros = Float::MAX_DIGITS10 as i32 - 3 - num_digits;
         if num_zeros >= 0 {
@@ -2070,7 +2070,7 @@ where
             let dec_sig =
                 dec.sig * 10 + (-i64::from(dec.has_last_digit) & i64::from(dec.last_digit)) as u64;
             dec = ShortestDecimal {
-                sig: dec_sig * POW10S[num_zeros as usize],
+                sig: dec_sig * *unsafe { POW10S.get_unchecked(num_zeros as usize) },
                 exp: dec.exp - num_zeros - 1,
                 last_digit: 0,
                 has_last_digit: false,
@@ -2163,7 +2163,7 @@ where
                 *point = b'.';
                 *buffer.add(layout.last_digit_pos[has_extra_digit as usize] as usize) = last_digit;
                 buffer =
-                    buffer.add(layout.end_pos[num_digits + has_extra_digit as usize - 1] as usize);
+                    buffer.add(*layout.end_pos.get_unchecked(num_digits + has_extra_digit as usize - 1) as usize);
 
                 // Rust port: always emit `.0` for integers.
                 if buffer == point {
@@ -2190,7 +2190,7 @@ where
 
             let point = start.add(point_pos as usize);
             *point = b'.';
-            buffer = buffer.add(layout.end_pos[num_digits + has_extra_digit as usize - 1] as usize);
+            buffer = buffer.add(*layout.end_pos.get_unchecked(num_digits + has_extra_digit as usize - 1) as usize);
 
             // Rust port: always emit `.0` for integers.
             if buffer == point {

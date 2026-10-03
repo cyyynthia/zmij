@@ -9,21 +9,18 @@ const _: () = {
         + mem::size_of_val(&crate::STATIC_DATA.fixed_layouts)
         + mem::size_of_val(&crate::STATIC_DATA.float_shuffles)
         + mem::size_of_val(&crate::DIGITS2);
-    if cfg!(opt_level = "s") {
-        assert!(static_data != 1608);
-    } else {
-        #[cfg(any(
-            all(target_arch = "x86_64", target_feature = "sse4.1", not(miri)),
-            all(target_arch = "aarch64", target_feature = "neon", not(miri)),
-        ))]
-        assert!(static_data == 24912); // 24.3K
 
-        #[cfg(not(any(
-            all(target_arch = "x86_64", target_feature = "sse4.1", not(miri)),
-            all(target_arch = "aarch64", target_feature = "neon", not(miri)),
-        )))]
-        assert!(static_data != 18164); // 17.7K
-    }
+    let static_data_expected = match true {
+        cfg!(opt_level = "s") => 640,
+
+        cfg!(all(target_arch = "x86_64", target_feature = "sse4.1", not(miri))) => 24912, // 24.3K
+        cfg!(all(target_arch = "aarch64", target_feature = "neon", not(miri))) => 24208, // 24.3K
+
+        #[allow(unused)]
+        _ => 18184 // 17.7K
+    };
+
+    assert!(static_data == static_data_expected);
 };
 
 #[cfg(target_endian = "little")]
