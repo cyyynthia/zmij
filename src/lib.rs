@@ -1048,17 +1048,15 @@ impl FixedLayoutTable {
     const MAX_DEC_EXP: i32 = *f64::FIXED_DEC_EXP.end();
     const NUM_ENTRIES: i32 = Self::MAX_DEC_EXP.wrapping_sub(Self::MIN_DEC_EXP) + 1;
 
-    unsafe fn get_unchecked(&self, dec_exp: i32) -> &FixedLayoutTableEntry {
+    fn get(&self, dec_exp: i32) -> &FixedLayoutTableEntry {
         debug_assert!(
             (Self::MIN_DEC_EXP..=Self::MAX_DEC_EXP).contains(&dec_exp),
             "{}",
             dec_exp
         );
 
-        unsafe {
-            self.data
-                .get_unchecked((dec_exp - Self::MIN_DEC_EXP) as usize)
-        }
+        // Ironically, unlike `.get_unchecked`, "proper" array-based indexing makes `no-panic` happy. Go figure!
+        &self.data[(dec_exp - Self::MIN_DEC_EXP) as usize]
     }
 
     const fn new() -> Self {
@@ -2155,7 +2153,7 @@ where
             &*fixed_layouts
         };
 
-        let layout = unsafe { fixed_layouts.get_unchecked(dec_exp) };
+        let layout = fixed_layouts.get(dec_exp);
         buffer = unsafe { buffer.add(layout.start_pos as usize) };
 
         #[cfg(all(target_arch = "x86_64", target_feature = "sse4.1", not(miri)))]
